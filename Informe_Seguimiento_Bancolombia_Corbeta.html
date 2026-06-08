@@ -502,7 +502,28 @@ textarea::placeholder { color: var(--text-dim); }
   overflow: hidden;
   box-shadow: var(--shadow-xs);
 }
-.tbl-scroll { overflow-x: auto; }
+.tbl-scroll {
+  overflow-x: auto;
+  /* Scrollbar always visible at bottom — also show a mirror at top */
+}
+.tbl-scroll-top {
+  overflow-x: auto;
+  overflow-y: hidden;
+  height: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.tbl-scroll-top-inner { height: 1px; }
+/* Sticky first column */
+table { width: 100%; border-collapse: collapse; }
+thead th:first-child,
+tbody td:first-child {
+  position: sticky; left: 0; z-index: 2;
+  background: inherit;
+}
+thead th:first-child { background: var(--navy); z-index: 3; }
+tbody tr:nth-child(even) td:first-child { background: var(--off); }
+tbody tr:hover td:first-child { background: var(--blue-glow); }
+tbody tr.active-row td:first-child { background: rgba(29,78,216,.07); }
 
 table { width: 100%; border-collapse: collapse; }
 thead tr { background: var(--navy); }
@@ -865,8 +886,9 @@ footer .f-dot { width: 2px; height: 2px; background: rgba(255,255,255,.15); bord
       </div>
 
       <div class="tbl-wrap">
-        <div class="tbl-scroll">
-          <table>
+        <div class="tbl-scroll-top" id="tbl-scroll-top"><div class="tbl-scroll-top-inner" id="tbl-top-inner"></div></div>
+        <div class="tbl-scroll" id="tbl-scroll-bottom">
+          <table id="main-table">
             <thead id="thead"></thead>
             <tbody id="tbody"></tbody>
           </table>
@@ -914,26 +936,24 @@ let c1=null, c2=null, c3=null, c5=null;
 let fileContentMain=null, fileContentHist=null;
 let activeRowId=null;
 
-const SR=['pendiente','vencido','critico','urgente','atrasado','rojo','sin resolver','pdte'];
-const SG=['resuelto','cerrado','completado','finalizado','ok','verde','solucionado','listo'];
-const SA=['en proceso','en revisión','en curso','seguimiento','amarillo','parcial','revision'];
-const SB=['nuevo','abierto','registrado','azul','recibido','ingresado'];
+const SR_BANCO=['pendiente banco','pendiente_banco'];
+const SR_CLIENTE=['pendiente cliente','pendiente_cliente'];
+const SG=['cerrado','resuelto','completado','finalizado','ok','solucionado','listo'];
 
 const PALETTE=['#1d4ed8','#06b6d4','#10b981','#f59e0b','#8b5cf6','#f97316','#0ea5e9','#ec4899','#14b8a6','#6366f1'];
 
 function sc(v){
-  if(!v)return'gray';const l=v.toLowerCase();
-  if(SR.some(k=>l.includes(k)))return'red';
+  if(!v)return'gray';
+  const l=v.toLowerCase().trim();
+  if(SR_BANCO.some(k=>l.includes(k)))return'red';
+  if(SR_CLIENTE.some(k=>l.includes(k)))return'amber';
   if(SG.some(k=>l.includes(k)))return'green';
-  if(SA.some(k=>l.includes(k)))return'amber';
-  if(SB.some(k=>l.includes(k)))return'blue';
   return'gray';
 }
-function scColor(s){ 
-  return s==='red'  ?'#ef4444'   // pendiente → rojo
-       : s==='green'?'#10b981'   // resuelto → verde
-       : s==='amber'?'#f59e0b'   // en proceso → ámbar
-       : s==='blue' ?'#3b82f6'   // nuevo → azul
+function scColor(s){
+  return s==='red'  ?'#ef4444'   // pendiente banco → rojo
+       : s==='amber'?'#f59e0b'   // pendiente cliente → ámbar
+       : s==='green'?'#10b981'   // cerrado → verde
        :             '#94a3b8';  // otro → gris
 }
 function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') }
@@ -1107,13 +1127,13 @@ function showSetup(){
 function showErr(m){document.getElementById('err').innerHTML=m;document.getElementById('err').style.display='block'}
 function hideErr(){document.getElementById('err').style.display='none'}
 
-function buildDash(){buildKPIs();buildCharts();buildFilters();buildTable();renderRows()}
+function buildDash(){buildKPIs();buildCharts();buildFilters();buildTable();renderRows();setTimeout(initScrollSync,200);}
 
 function buildKPIs(){
   const stc=getStatusCol(),ctc=getCatCol(),crc=getCritCol();
   const fapc=getFechaAperCol(),fciec=getFechaCierCol();
-  let pend=0,res=0,prog=0,alta=0;
-  if(stc)rows.forEach(r=>{const s=sc(r[stc]);if(s==='red')pend++;else if(s==='green')res++;else if(s==='amber')prog++;});
+  let pendBanco=0,pendCliente=0,cerrados=0,alta=0;
+  if(stc)rows.forEach(r=>{const s=sc(r[stc]);if(s==='red')pendBanco++;else if(s==='amber')pendCliente++;else if(s==='green')cerrados++;});
   if(crc)rows.forEach(r=>{const v=(r[crc]||'').toLowerCase();if(v.includes('alta')||v.includes('critica')||v.includes('crítica'))alta++;});
 
   let avgDays='—';
@@ -1122,9 +1142,9 @@ function buildKPIs(){
 
   const kpis=[
     {icon:'📋',lbl:'Total temas',val:rows.length,sub:'registros cargados',c:'cn'},
-    {icon:'🔴',lbl:'Pendiente banco',val:stc?pend:'—',sub:'requieren acción',c:'cr'},
-    {icon:'🟡',lbl:'En proceso',val:stc?prog:'—',sub:'en seguimiento',c:'ca'},
-    {icon:'✅',lbl:'Cerrados',val:stc?res:'—',sub:'resueltos',c:'cg'},
+    {icon:'🔴',lbl:'Pendiente banco',val:stc?pendBanco:'—',sub:'requieren acción',c:'cr'},
+    {icon:'🟡',lbl:'Pendiente cliente',val:stc?pendCliente:'—',sub:'en seguimiento',c:'ca'},
+    {icon:'✅',lbl:'Cerrados',val:stc?cerrados:'—',sub:'resueltos',c:'cg'},
     {icon:'⚡',lbl:'Alta criticidad',val:crc?alta:'—',sub:'casos urgentes',c:'cp'},
     {icon:'⏱',lbl:'Promedio días',val:avgDays,sub:'para resolución',c:'cb'},
   ];
@@ -1178,7 +1198,8 @@ function buildCharts(){
     const cnt={};
     rows.forEach(r=>{const v=r[stc]||'Sin estado';cnt[v]=(cnt[v]||0)+1});
     const labs=Object.keys(cnt),total=rows.length;
-    const colors=labs.map(l=>scColor(sc(l)));
+    const STATUS_COLORS=['#ef4444','#f59e0b','#10b981','#3b82f6','#8b5cf6','#f97316','#06b6d4','#ec4899'];
+    const colors=labs.map((l,i)=>{const s=sc(l);return s!=='gray'?scColor(s):STATUS_COLORS[i%STATUS_COLORS.length];});
     document.getElementById('donut-total').textContent=total;
     document.getElementById('pill-status').textContent=labs.length+' estados';
     c1=new Chart(document.getElementById('ch1').getContext('2d'),{
@@ -1212,7 +1233,8 @@ function buildCharts(){
     const cnt={};
     rows.forEach(r=>{const v=r[crc]||'Sin definir';cnt[v]=(cnt[v]||0)+1});
     const labs=Object.keys(cnt),total=rows.length;
-    const colors=labs.map(l=>critColor(l));
+    const CRIT_PALETTE=['#f97316','#f59e0b','#10b981','#3b82f6','#8b5cf6','#ef4444','#06b6d4','#ec4899'];
+    const colors=labs.map((l,i)=>{const c=critColor(l);return c!=='#94a3b8'?c:CRIT_PALETTE[i%CRIT_PALETTE.length];});
     document.getElementById('donut-crit-total').textContent=total;
     document.getElementById('pill-crit').textContent=labs.length+' niveles';
     c3=new Chart(document.getElementById('ch3').getContext('2d'),{
@@ -1529,6 +1551,20 @@ function formatFecha(s){
   if(!d)return s||'—';
   return d.toLocaleDateString('es-CO',{day:'numeric',month:'short',year:'numeric'})+
     (s.includes(':')?' '+d.toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'}):'');
+}
+
+
+// ── Sync top/bottom scrollbars ──
+function initScrollSync(){
+  const top=document.getElementById('tbl-scroll-top');
+  const bot=document.getElementById('tbl-scroll-bottom');
+  const inner=document.getElementById('tbl-top-inner');
+  if(!top||!bot||!inner)return;
+  // Set inner width to match table width
+  const tbl=document.getElementById('main-table');
+  if(tbl) inner.style.width=tbl.scrollWidth+'px';
+  top.addEventListener('scroll',()=>{if(bot.scrollLeft!==top.scrollLeft)bot.scrollLeft=top.scrollLeft;});
+  bot.addEventListener('scroll',()=>{if(top.scrollLeft!==bot.scrollLeft)top.scrollLeft=bot.scrollLeft;});
 }
 
 function closeDetail(){
